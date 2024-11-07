@@ -7,6 +7,12 @@ OPERATION_CODE_WIDTH_BITS = 4
 
 NUMBER_OF_ADDRESSES = (1 << ADDRESS_WIDTH_BITS)
 
+def bswap(value : int):
+    # Ensure it's within 16-bit range
+    value &= 0xFFFF
+    return ((value & 0xFF00) >> 8) | ((value & 0x00FF) << 8)
+
+
 class Assembler:
     def __init__(self, path_to_program : str, path_to_binary : str, path_to_log_file : str):
         self.MEMORY = [0 for _ in range(NUMBER_OF_ADDRESSES)]
@@ -16,6 +22,7 @@ class Assembler:
         self.INPUT_FILE = path_to_program
         self.OUTPUT_FILE = path_to_binary
         self.LOG_FILE = path_to_log_file
+        self.log_list = []
         open(self.OUTPUT_FILE, 'w').close()
         open(self.LOG_FILE, 'w').close()
 
@@ -32,6 +39,7 @@ class Assembler:
     
     def run(self):
         print('---Assembler running:')
+
         with open(self.INPUT_FILE, 'r') as f:
             lines = f.readlines()
         
@@ -49,6 +57,7 @@ class Assembler:
                         self.AC = value
                         const_binary_command = self.generate_bytes(8, value)
                         self.write_to_binary(const_binary_command)
+                        self.add_to_log_list([8, value], const_binary_command)
 
                         # Store value from AC to memory
                         if variable_name not in self.NAMESPACE.keys():
@@ -58,6 +67,7 @@ class Assembler:
                         self.MEMORY[address] = value
                         store_binary_command = self.generate_bytes(9, address)
                         self.write_to_binary(store_binary_command)
+                        self.add_to_log_list([10, address], store_binary_command)
 
                     case 'mov':
                         to_variable_name, from_variable_name = command_parts[1:3]
@@ -67,13 +77,10 @@ class Assembler:
                         
                         from_address = self.NAMESPACE[from_variable_name]
                         shift = (from_address - self.AC) % NUMBER_OF_ADDRESSES
-                        print("shift, from_address, self.AC")
-                        print(shift, from_address, self.AC)
-                        print(f"(shift + self.AC) % NUMBER_OF_ADDRESSES = {(shift + self.AC) % NUMBER_OF_ADDRESSES}")
                         self.AC = self.MEMORY[from_address]
                         read_binary_command = self.generate_bytes(10, shift)
                         self.write_to_binary(read_binary_command)
-
+                        self.add_to_log_list([9, shift], read_binary_command)
 
                         if to_variable_name not in self.NAMESPACE.keys():
                             to_address = self.add_var_to_namespace(to_variable_name)
@@ -82,9 +89,33 @@ class Assembler:
 
                         store_binary_command = self.generate_bytes(9, to_address)
                         self.write_to_binary(store_binary_command)
+                        self.add_to_log_list([10, to_address], store_binary_command)
+
                     
                     case 'bswap':
-                        ...
+                        self.AC = bswap(self.MEMORY[self.AC])
+                        bswap_binary_command = self.generate_bytes(2, 0)
+                        self.write_to_binary(bswap_binary_command)
+                        self.add_to_log_list([2], bswap_binary_command)
+
+        self.write_log_file()
+
+    def write_log_file(self):
+        with open(self.LOG_FILE, 'a') as log_file:
+            json.dump(self.log_list, log_file)
+        
+    def add_to_log_list(self, command_parts_decimal, binary_command):
+        log_object = {}
+        A = command_parts_decimal[0]
+        log_object["A"] = A
+        if len(command_parts_decimal) == 2:
+            B = command_parts_decimal[1]
+            log_object["B"] = B
+        
+        log_object["Binary (hex) command"] = binary_command
+        self.log_list.append(log_object)
+
+        
                         
     
     def generate_bytes(self, A, B):
@@ -115,6 +146,7 @@ class Assembler:
             bin_number = '0' + bin_number
         
         return bin_number
+    
 
                         
 
@@ -153,7 +185,7 @@ class Interpreter:
                     self.MEMORY[address] = value
 
                 case "0010": # Perform bswap
-                    self.AC = self.bswap(self.AC)
+                    self.AC = bswap(self.MEMORY[self.AC])
 
         self.log_result()
 
@@ -166,13 +198,6 @@ class Interpreter:
         with open(self.RESULT_FILE, 'a') as f:
             json.dump(data, f)
 
-    @staticmethod
-    def bswap(value : int):
-        # Ensure it's within 32-bit range
-        value &= 0xFFFFFFFF
-
-        return ((value & 0xFF000000) >> 24) | ((value & 0x00FF0000) >> 8) | \
-               ((value & 0x0000FF00) << 8) | ((value & 0x000000FF) << 24)
 
     @staticmethod
     def get_command_slice(command : str, index1 : int, index2 : int) -> str:

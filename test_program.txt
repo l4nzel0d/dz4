@@ -8,4 +8,7 @@ set season6 2006
 mov premiere season1
 mov finale season6
 
-set value 13345
+set to_bswap 43981
+set address_of_value_to_bswap 8
+
+bswap
