@@ -1,7 +1,7 @@
 import json
 import math
 
-ADDRESS_WIDTH_BITS = 16
+ADDRESS_WIDTH_BITS = 11
 COMMAND_WIDTH_BYTES = 4
 OPERATION_CODE_WIDTH_BITS = 4 
 
@@ -9,6 +9,7 @@ NUMBER_OF_ADDRESSES = (1 << ADDRESS_WIDTH_BITS)
 
 class Assembler:
     def __init__(self, path_to_program : str, path_to_binary : str, path_to_log_file : str):
+        self.MEMORY = [0 for _ in range(NUMBER_OF_ADDRESSES)]
         self.FREE_MEMORY_ADDRESS = -1
         self.AC : int = 0
         self.NAMESPACE = {}
@@ -40,18 +41,24 @@ class Assembler:
                 command_parts = code_line.split()
                 command_type = command_parts[0]
                 match(command_type):
+
                     case 'set':
                         variable_name = command_parts[1] 
                         value = int(command_parts[2])
                         # Load constant into AC
                         self.AC = value
-                        const_binary_command = self.generate_bytes_const(value)
+                        const_binary_command = self.generate_bytes(8, value)
                         self.write_to_binary(const_binary_command)
 
                         # Store value from AC to memory
-                        address = self.add_var_to_namespace(variable_name)
-                        store_binary_command = self.generate_bytes_store(address)
+                        if variable_name not in self.NAMESPACE.keys():
+                            address = self.add_var_to_namespace(variable_name)
+                        else:
+                            address = self.NAMESPACE[variable_name]
+                        self.MEMORY[address] = value
+                        store_binary_command = self.generate_bytes(9, address)
                         self.write_to_binary(store_binary_command)
+
                     case 'mov':
                         to_variable_name, from_variable_name = command_parts[1:3]
 
@@ -59,9 +66,13 @@ class Assembler:
                             raise Exception(f"Variable {from_variable_name} was not declared.")
                         
                         from_address = self.NAMESPACE[from_variable_name]
-                        shift = (from_address - self.AC) % (NUMBER_OF_ADDRESSES)
-                        print(shift, from_address, )
-                        read_binary_command = self.generate_bytes_read(from_address)
+                        shift = (from_address - self.AC) % NUMBER_OF_ADDRESSES
+                        print("shift, from_address, self.AC")
+                        print(shift, from_address, self.AC)
+                        print(f"(shift + self.AC) % NUMBER_OF_ADDRESSES = {(shift + self.AC) % NUMBER_OF_ADDRESSES}")
+                        self.AC = self.MEMORY[from_address]
+                        read_binary_command = self.generate_bytes(10, shift)
+                        self.write_to_binary(read_binary_command)
 
 
                         if to_variable_name not in self.NAMESPACE.keys():
@@ -69,72 +80,36 @@ class Assembler:
                         else:
                             to_address = self.NAMESPACE[to_variable_name]
 
-                        store_binary_command = self.generate_bytes_store(to_address)
+                        store_binary_command = self.generate_bytes(9, to_address)
                         self.write_to_binary(store_binary_command)
+                    
+                    case 'bswap':
+                        ...
                         
     
-    def generate_bytes_const(self, value : int) -> list:
-        # initialize bytes array
-        print("generate_bytes_const():")
+    def generate_bytes(self, A, B):
         bytes = [''] * 4
+        command_code : str = bin(A)[2:]
+        command_code = self.pad_with_zeros(command_code, 4)
+        
+        second_field_bin = bin(B)[2:]
+        second_field_bin = self.pad_with_zeros(second_field_bin, 28)
 
+        bytes[0] = second_field_bin[-4:] + command_code
 
-        command_code : str = '1000'
-
-        print("Value: ", value)
-        # convert value to binary and pad with zeros
-        value_bin : str = bin(value)[2:]
-        value_bin = self.pad_with_zeroes(value_bin, 28)
-        print("Value bin: ", value_bin)
-
-        # set first byte
-        bytes[0] = value_bin[-4:] + command_code
-
-        # set the rest of the bytes
-        value_bin_rest = value_bin[:-4]
-        bytes[1:4] = [value_bin_rest[i:i+8] for i in range(0, len(value_bin_rest), 8)][::-1]
-
-        # convert each byte hex
+        second_field_bin_rest = second_field_bin[:-4]
+        bytes[1:4] = [second_field_bin_rest[i:i+8] for i in range(0, len(second_field_bin_rest), 8)][::-1]
+        
         bytes = [hex(int(byte, 2)) for byte in bytes]
-        print(bytes)
         return bytes
-
-    def generate_bytes_store(self, address : int) -> list:
-        print("generate_bytes_store():")
-        # initialize bytes array
-        bytes = [''] * 4
-
-
-        command_code : str = '1001'
-
-        print("Address: ", address)
-        # convert value to binary and pad with zeros
-        address_bin : str = bin(address)[2:]
-        print("Address bin: ", address_bin)
-        address_bin = self.pad_with_zeroes(address_bin, 28)
-
-        # set first byte
-        bytes[0] = address_bin[-4:] + command_code
-
-        # set the rest of the bytes
-        address_bin_rest = address_bin[:-4]
-        bytes[1:4] = [address_bin_rest[i:i+8] for i in range(0, len(address_bin_rest), 8)][::-1]
-
-        # convert each byte hex
-        bytes = [hex(int(byte, 2)) for byte in bytes]
-        print(bytes)
-        return bytes
-
-    def generate_bytes_read(self, shift: int) -> list:
-        ...
-
+    
     def write_to_binary(self, bytes : list):
         with open(self.OUTPUT_FILE, 'ab') as f:
             for hex_str in bytes:
                 byte = int(hex_str, 16).to_bytes(1)
                 f.write(byte)
 
-    def pad_with_zeroes(self, bin_number : str, desired_length : int) -> str:
+    def pad_with_zeros(self, bin_number : str, desired_length : int) -> str:
         bin_number_length = len(bin_number)
         for _ in range(desired_length - bin_number_length):
             bin_number = '0' + bin_number
@@ -159,19 +134,16 @@ class Interpreter:
             command_index = i // COMMAND_WIDTH_BYTES
             commands[command_index] = format(byte, '08b') + commands[command_index]
 
-        print("Commands: ",commands)
         for command in commands:
             command_type = self.get_command_slice(command, 0, OPERATION_CODE_WIDTH_BITS)
-            print("Command type: ", command_type)
             match(command_type):
                 case "1000": # Loading constant into AC
                     value = int(self.get_command_slice(command, OPERATION_CODE_WIDTH_BITS, 31), 2)
-                    print(value)
                     self.AC = value
 
                 case "1010": # Reading value from memory
-                    shift = int(self.get_command_slice(command, OPERATION_CODE_WIDTH_BITS, 11), 2)
-                    address = (self.AC + shift) % len(self.MEMORY)
+                    shift = int(self.get_command_slice(command, OPERATION_CODE_WIDTH_BITS, 15), 2)
+                    address = (self.AC + shift) % NUMBER_OF_ADDRESSES
                     value = self.MEMORY[address]
                     self.AC = value
 
@@ -189,7 +161,7 @@ class Interpreter:
         data = {}
         data["AC"] = self.AC
         data["MEMORY"] = []
-        for i in range(len(self.MEMORY)):
+        for i in range(NUMBER_OF_ADDRESSES):
             data["MEMORY"].append({"0b" + bin(i)[2:].zfill(ADDRESS_WIDTH_BITS): self.MEMORY[i]})
         with open(self.RESULT_FILE, 'a') as f:
             json.dump(data, f)
@@ -203,7 +175,7 @@ class Interpreter:
                ((value & 0x0000FF00) << 8) | ((value & 0x000000FF) << 24)
 
     @staticmethod
-    def get_command_slice(command : str, index1 : int, index2 : int):
+    def get_command_slice(command : str, index1 : int, index2 : int) -> str:
         if index1 == 0:
             return command[-index2:]
         return command[-index2:-index1]
