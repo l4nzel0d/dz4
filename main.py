@@ -112,7 +112,7 @@ class Assembler:
             B = command_parts_decimal[1]
             log_object["B"] = B
         
-        log_object["Binary (hex) command"] = binary_command
+        log_object["hex"] = binary_command
         self.log_list.append(log_object)
 
         

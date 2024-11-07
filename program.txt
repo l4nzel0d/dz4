@@ -1,6 +1,2 @@
-set season1 1999    ; Load constant into AC then store in memory
-set season6 2006    ; Load constant into AC then store in memory
-
-mov premiere season1    ; Get value from one address then store it at another address
 
 

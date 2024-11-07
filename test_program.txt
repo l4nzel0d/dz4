@@ -1,14 +1,11 @@
-set season1 1999
-set season2 2000
-set season3 2001
-set season4 2002
-set season5 2004
+set var0 600
+set season1 1999 
 set season6 2006
 
 mov premiere season1
 mov finale season6
 
-set to_bswap 43981
-set address_of_value_to_bswap 8
+set to_bswap 43981                   ; 43981 = 0xABCD
+set address_of_value_to_bswap 5      ; 5 because to_bswap is the 6th declared variable
 
 bswap
